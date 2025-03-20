@@ -1,0 +1,6 @@
+com\adan\web\proyecto\retoaws\repository\PersonaRepository.class
+com\adan\web\proyecto\retoaws\service\IPersonaService.class
+com\adan\web\proyecto\retoaws\RetoawsApplication.class
+com\adan\web\proyecto\retoaws\models\Persona.class
+com\adan\web\proyecto\retoaws\service\PersonaServiceImpl.class
+com\adan\web\proyecto\retoaws\controller\PersonaController.class
