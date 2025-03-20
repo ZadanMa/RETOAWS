@@ -1,0 +1,321 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template for api-usuarios service.
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+  Region:
+    Type: String
+    Default: us-east-1
+
+Resources:
+  UsuariosDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: usuarios
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  CrearUsuarioQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "crearUsuarioQueue-${Stage}"
+
+  CorreoSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "correoSNSTopic-${Stage}"
+
+  UsuariosDynamoDBLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-usuarios-${Stage}-dynamodbLambdaRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBAccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                Resource: !GetAtt UsuariosDynamoDBTable.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt CrearUsuarioQueue.Arn
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref CorreoSNSTopic
+
+  CrearUsuarioQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action:
+              - sqs:SendMessage
+              - sqs:ReceiveMessage
+            Resource: !GetAtt CrearUsuarioQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn:
+                  - !Sub "arn:aws:lambda:${Region}:${AWS::AccountId}:function:api-usuarios-${Stage}-postUser"
+                  - !Sub "arn:aws:lambda:${Region}:${AWS::AccountId}:function:api-usuarios-${Stage}-enviarCorreos"
+      Queues:
+        - !Ref CrearUsuarioQueue
+
+  SuscripcionCorreo:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: adanmoreto14@gmail.com
+      TopicArn: !Ref CorreoSNSTopic
+
+  CorreoSNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: sns:Publish
+            Resource: !Ref CorreoSNSTopic
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:aws:lambda:${Region}:${AWS::AccountId}:function:api-usuarios-${Stage}-enviarCorreos"
+      Topics:
+        - !Ref CorreoSNSTopic
+
+  # API Gateway Rest API
+  ApiGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub "api-usuarios-${Stage}"
+
+  # Recurso /usuarios
+  UsuariosResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+      PathPart: usuarios
+
+  # Recurso /usuarios/{id}
+  UsuarioIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ParentId: !Ref UsuariosResource
+      PathPart: "{id}"
+
+  # Funciones Lambda sin integración directa de eventos (se configuran manualmente)
+  GetUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-usuarios-${Stage}-getUser"
+      Runtime: nodejs20.x
+      Handler: getUser.getUser
+      Role: !GetAtt UsuariosDynamoDBLambdaRole.Arn
+      Code:
+        S3Bucket: iac-h789
+        S3Key: getUser.zip
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref CorreoSNSTopic
+          CREAR_USUARIO_QUEUE_URL: !GetAtt CrearUsuarioQueue.QueueUrl
+
+  PostUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-usuarios-${Stage}-postUser"
+      Runtime: nodejs20.x
+      Handler: postUser.postUser
+      Role: !GetAtt UsuariosDynamoDBLambdaRole.Arn
+      Code:
+        S3Bucket: iac-h789
+        S3Key: postUser.zip
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref CorreoSNSTopic
+          CREAR_USUARIO_QUEUE_URL: !GetAtt CrearUsuarioQueue.QueueUrl
+
+  PutUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-usuarios-${Stage}-putUser"
+      Runtime: java17
+      Handler: com.example.PutUser
+      Role: !GetAtt UsuariosDynamoDBLambdaRole.Arn
+      Code:
+        S3Bucket: iac-h789
+        S3Key: lambda-java-endpoints-1.0-SNAPSHOT.jar
+      Timeout: 30
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref CorreoSNSTopic
+          CREAR_USUARIO_QUEUE_URL: !GetAtt CrearUsuarioQueue.QueueUrl
+
+  DeleteUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-usuarios-${Stage}-deleteUser"
+      Runtime: java17
+      Handler: com.example.DeleteUser
+      Role: !GetAtt UsuariosDynamoDBLambdaRole.Arn
+      Code:
+        S3Bucket: iac-h789
+        S3Key: lambda-java-endpoints-1.0-SNAPSHOT.jar
+      Timeout: 30
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref CorreoSNSTopic
+          CREAR_USUARIO_QUEUE_URL: !GetAtt CrearUsuarioQueue.QueueUrl
+
+  EnviarCorreosLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-usuarios-${Stage}-enviarCorreos"
+      Runtime: nodejs20.x
+      Handler: enviarCorreos.enviarCorreos
+      Role: !GetAtt UsuariosDynamoDBLambdaRole.Arn
+      Code:
+        S3Bucket: iac-h789
+        S3Key: enviarCorreos.zip
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref CorreoSNSTopic
+          CREAR_USUARIO_QUEUE_URL: !GetAtt CrearUsuarioQueue.QueueUrl
+
+  # Métodos de API Gateway para integrar las Lambdas con el Rest API
+  GetUserMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref UsuariosResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub "arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${GetUserLambda.Arn}/invocations"
+
+  PostUserMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref UsuariosResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub "arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${PostUserLambda.Arn}/invocations"
+
+  PutUserMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref UsuarioIdResource
+      HttpMethod: PUT
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub "arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${PutUserLambda.Arn}/invocations"
+
+  DeleteUserMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref UsuarioIdResource
+      HttpMethod: DELETE
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub "arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${DeleteUserLambda.Arn}/invocations"
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - GetUserMethod
+      - PostUserMethod
+      - PutUserMethod
+      - DeleteUserMethod
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      StageName: !Ref Stage
+
+  # Permisos para que API Gateway invoque las Lambdas
+  GetUserLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GetUserLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/GET/usuarios"
+
+  PostUserLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PostUserLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/POST/usuarios"
+
+  PutUserLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PutUserLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/PUT/usuarios/*"
+
+  DeleteUserLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DeleteUserLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/DELETE/usuarios/*"
+
+  # Mapeo de evento SQS para que EnviarCorreosLambda procese los mensajes
+  EnviarCorreosEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      EventSourceArn: !GetAtt CrearUsuarioQueue.Arn
+      FunctionName: !Ref EnviarCorreosLambda
+      Enabled: True
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ApiGatewayRestApi}.execute-api.${Region}.amazonaws.com/${Stage}/"
