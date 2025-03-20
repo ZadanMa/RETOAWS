@@ -1,0 +1,196 @@
+service: api-usuarios
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: dev
+  region: us-east-1
+  environment:
+    SNS_TOPIC_ARN: !Ref CorreoSNSTopic
+    CREAR_USUARIO_QUEUE_URL: !GetAtt CrearUsuarioQueue.QueueUrl
+  iamRoleStatements:
+    # Permisos globales para SQS y SNS
+    - Effect: Allow
+      Action: sqs:SendMessage
+      Resource: !GetAtt CrearUsuarioQueue.Arn
+
+    - Effect: Allow
+      Action:
+        - sqs:ReceiveMessage
+        - sqs:DeleteMessage
+        - sqs:GetQueueAttributes
+      Resource: !GetAtt CrearUsuarioQueue.Arn
+
+    - Effect: Allow
+      Action: sns:Publish
+      Resource: !Ref CorreoSNSTopic
+
+functions:
+  getUser:
+    handler: handler.getUser
+    role: !GetAtt UsuariosDynamoDBLambdaRole.Arn
+    events:
+      - http:
+          path: usuarios
+          method: get
+          cors: true
+
+  postUser:
+    handler: handler.postUser
+    role: !GetAtt UsuariosDynamoDBLambdaRole.Arn
+    events:
+      - http:
+          path: usuarios
+          method: post
+          cors: true
+
+  putUser:
+    handler: com.example.PutUser
+    runtime: java17
+    role: !GetAtt UsuariosDynamoDBLambdaRole.Arn
+    package:
+      artifact: java-endpoints/target/lambda-java-endpoints-1.0-SNAPSHOT.jar
+    events:
+      - http:
+          path: usuarios/{id}
+          method: put
+          cors: true
+          request:
+            parameters:
+              paths:
+                id: true
+
+  deleteUser:
+    handler: com.example.DeleteUser
+    runtime: java17
+    role: !GetAtt UsuariosDynamoDBLambdaRole.Arn
+    package:
+      artifact: java-endpoints/target/lambda-java-endpoints-1.0-SNAPSHOT.jar
+    events:
+      - http:
+          path: usuarios/{id}
+          method: delete
+          cors: true
+          request:
+            parameters:
+              paths:
+                id: true
+
+  enviarCorreos:
+    handler: enviarCorreos.enviarCorreos
+    events:
+      - sqs:
+          arn: !GetAtt CrearUsuarioQueue.Arn
+    environment:
+      SNS_TOPIC_ARN: !Ref CorreoSNSTopic
+
+resources:
+  Resources:
+    UsuariosDynamoDBTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: usuarios
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+
+    CrearUsuarioQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: crearUsuarioQueue
+
+    CorreoSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: correoSNSTopic
+
+    # Rol exclusivo para funciones que requieren acceso a DynamoDB
+    UsuariosDynamoDBLambdaRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: ${self:service}-${self:provider.stage}-dynamodbLambdaRole
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Policies:
+          - PolicyName: DynamoDBAccessPolicy
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - dynamodb:PutItem
+                    - dynamodb:GetItem
+                    - dynamodb:UpdateItem
+                    - dynamodb:DeleteItem
+                    - dynamodb:Scan
+                  Resource: !GetAtt UsuariosDynamoDBTable.Arn
+                - Effect: Allow
+                  Action:
+                    - sqs:SendMessage
+                  Resource: !GetAtt CrearUsuarioQueue.Arn
+                - Effect: Allow
+                  Action:
+                    - sns:Publish
+                  Resource: !Ref CorreoSNSTopic
+
+    CrearUsuarioQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal: "*"
+              Action:
+                - sqs:SendMessage
+                - sqs:ReceiveMessage
+              Resource: !GetAtt CrearUsuarioQueue.Arn
+              Condition:
+                ArnLike:
+                  aws:SourceArn:
+                    - !Sub "arn:aws:lambda:${self:provider.region}:340752805522:function:${self:service}-${self:provider.stage}-postUser"
+                    - !Sub "arn:aws:lambda:${self:provider.region}:340752805522:function:${self:service}-${self:provider.stage}-enviarCorreos"
+        Queues:
+          - !Ref CrearUsuarioQueue
+
+    SuscripcionCorreo:
+      Type: AWS::SNS::Subscription
+      Properties:
+        Protocol: email
+        Endpoint: adanmoreto14@gmail.com
+        TopicArn: !Ref CorreoSNSTopic
+
+    CorreoSNSTopicPolicy:
+      Type: AWS::SNS::TopicPolicy
+      Properties:
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal: "*"
+              Action: sns:Publish
+              Resource: !Ref CorreoSNSTopic
+              Condition:
+                ArnLike:
+                  aws:SourceArn: !Sub "arn:aws:lambda:${self:provider.region}:340752805522:function:${self:service}-${self:provider.stage}-api-usuarios-dev-enviarCorreos"
+        Topics:
+          - !Ref CorreoSNSTopic
+
+package:
+  individually: true
+  exclude:
+    - node-endpoints/node_modules/**
+    - .gitignore
+    - .idea/**
+    - .git/**
