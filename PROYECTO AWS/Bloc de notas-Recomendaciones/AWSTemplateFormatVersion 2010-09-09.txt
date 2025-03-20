@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Resources:
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: ApiUsuarios
+
+  UsuariosDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: usuarios
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  CrearUsuarioQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: crearUsuarioQueue
+
+  CorreoSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: correoSNSTopic
+
+  GetUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: getUser
+      Handler: handler.getUser
+      Runtime: nodejs20.x
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+  PostUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: postUser
+      Handler: handler.postUser
+      Runtime: nodejs20.x
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          CREAR_USUARIO_QUEUE_URL: !Ref CrearUsuarioQueue
+
+  PutUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: putUser
+      Handler: com.example.PutUser
+      Runtime: java11
+      CodeUri: java-endpoints/target/lambda-java-endpoints-1.0-SNAPSHOT.jar
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+  DeleteUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: deleteUser
+      Handler: com.example.DeleteUser
+      Runtime: java11
+      CodeUri: java-endpoints/target/lambda-java-endpoints-1.0-SNAPSHOT.jar
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+  EnviarCorreosLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: enviarCorreos
+      Handler: enviarCorreos.enviarCorreos
+      Runtime: nodejs20.x
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref CorreoSNSTopic
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource: !GetAtt UsuariosDynamoDBTable.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt CrearUsuarioQueue.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sns:Publish
+                Resource:
+                  - !GetAtt CrearUsuarioQueue.Arn
+                  - !Ref CorreoSNSTopic

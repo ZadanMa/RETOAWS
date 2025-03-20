@@ -1,0 +1,2 @@
+cognito token
+aws cognito-idp initiate-auth --client-id 2itl6oca0flvld0m7b7s79bnrv --auth-flow USER_PASSWORD_AUTH --auth-parameters USERNAME=zadan,PASSWORD=@Mark2804,SECRET_HASH=1p3nMaX45PQEPnzVpP7UGSU/q1aPriPNS0IxcM9Jq+g=

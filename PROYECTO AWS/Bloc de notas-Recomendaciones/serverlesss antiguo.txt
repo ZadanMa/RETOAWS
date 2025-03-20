@@ -1,0 +1,142 @@
+service: api-usuarios
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  stage: dev
+  region: us-east-1
+  environment:
+    SNS_TOPIC_ARN: { "Ref": "CorreoSNSTopic" }
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+        - dynamodb:GetItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+        - dynamodb:Scan
+      Resource: !GetAtt UsuariosDynamoDBTable.Arn
+
+functions:
+  # 1) GET (Node)
+  getUser:
+    handler: handler.getUser  # Ahora apunta a handler.js
+    events:
+      - http:
+          path: usuarios
+          method: get
+          cors: true
+
+  # 2) POST (Node)
+  postUser:
+    handler: handler.postUser  # Ahora apunta a handler.js
+    events:
+      - http:
+          path: usuarios
+          method: post
+          cors: true
+    environment:
+      CREAR_USUARIO_QUEUE_URL: !Ref CrearUsuarioQueue
+
+  # 3) PUT (Java)
+  putUser:
+    handler: com.example.PutUser
+    # Indica la ruta al jar sombreado
+    package:
+      artifact: java-endpoints/target/lambda-java-endpoints-1.0-SNAPSHOT.jar
+    events:
+      - http:
+          path: usuarios
+          method: put
+          cors: true
+
+  # 4) DELETE (Java)
+  deleteUser:
+    handler: com.example.DeleteUser
+    package:
+      artifact: java-endpoints/target/lambda-java-endpoints-1.0-SNAPSHOT.jar
+    events:
+      - http:
+          path: usuarios/{id}
+          method: delete
+          cors: true
+# Recursos
+resources:
+  Resources:
+    UsuariosDynamoDBTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: usuarios
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+    UsuariosDynamoDBPolicy:
+      Type: AWS::IAM::Policy
+      Properties:
+        PolicyName: DynamoDBAccessPolicy
+        Roles:
+          - !Ref IamRoleLambdaExecution  # Asigna la política a las Lambdas
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+                - dynamodb:Scan
+              Resource: !GetAtt UsuariosDynamoDBTable.Arn
+    CrearUsuarioQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: crearUsuarioQueue
+    CrearUsuarioQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref CrearUsuarioQueue
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal: "*"
+              Action: sqs:SendMessage
+              Resource: !GetAtt CrearUsuarioQueue.Arn
+              Condition:
+                StringEquals:
+                  aws:SourceAccount: "340752805522"
+
+    UsuariosSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: usuariosNotificaciones
+    CorreoSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: correoSNSTopic
+    CorreoSNSTopicPolicy:
+      Type: AWS::SNS::TopicPolicy
+      Properties:
+        Topics:
+          - Ref: CorreoSNSTopic
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal: "*"
+              Action: "sns:Publish"
+              Resource: "*"  # Permite publicar en cualquier topic
+
+# Empaquetado y exclusiones
+package:
+  individually: true
+  exclude:
+    - node-endpoints/node_modules/**
+    - .gitignore
+    - .idea/**
+    - .git/**

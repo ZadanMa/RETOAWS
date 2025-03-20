@@ -1,0 +1,33 @@
+# 1. Crear cluster ECS
+aws ecs create-cluster --cluster-name retoaws-cluster
+
+# 2. Crear repositorio ECR (opcional si ya existe)
+aws ecr create-repository --repository-name retoaws-rep
+
+# 3. Registrar task definition
+aws ecs register-task-definition --cli-input-json '{"family":"retoaws-task","networkMode":"awsvpc","containerDefinitions":[{"name":"retoaws-container","image":"public.ecr.aws/j4e9h3n0/retoaws-rep:retoaws","portMappings":[{"containerPort":8080,"protocol":"tcp"}],"essential":true}],"requiresCompatibilities":["FARGATE"],"cpu":"512","memory":"1024","executionRoleArn":"arn:aws:iam::<TU_ACCOUNT_ID>:role/ecsTaskExecutionRole"}'
+
+# 4. Crear servicio ECS
+aws ecs create-service --cluster retoaws-cluster --service-name retoaws-service --task-definition retoaws-task --desired-count 2 --launch-type "FARGATE" --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx,subnet-yyy],securityGroups=[sg-xxx],assignPublicIp=ENABLED}"
+
+# 5. Crear target group
+aws elbv2 create-target-group --name retoaws-tg --protocol HTTP --port 8080 --target-type ip --vpc-id vpc-xxx
+
+# 6. Crear load balancer
+aws elbv2 create-load-balancer --name retoaws-alb --subnets subnet-xxx subnet-yyy --security-groups sg-xxx
+
+# 7. Crear listener ALB (reemplazar ARNs)
+aws elbv2 create-listener --load-balancer-arn arn:aws:elasticloadbalancing:region:account-id:loadbalancer/app/retoaws-alb/xxx --protocol HTTP --port 80 --default-actions Type=forward,TargetGroupArn=arn:aws:elasticloadbalancing:region:account-id:targetgroup/retoaws-tg/xxx
+
+# 8. Configurar API Gateway (reemplazar IDs)
+aws apigateway create-rest-api --name 'Personas API' && \
+aws apigateway create-resource --rest-api-id <API_ID> --parent-id <ROOT_ID> --path-part api && \
+aws apigateway create-resource --rest-api-id <API_ID> --parent-id <API_RESOURCE_ID> --path-part personas && \
+aws apigateway create-resource --rest-api-id <API_ID> --parent-id <PERSONAS_RESOURCE_ID> --path-part guardar && \
+aws apigateway put-method --rest-api-id <API_ID> --resource-id <GUARDAR_RESOURCE_ID> --http-method POST --authorization-type NONE && \
+aws apigateway create-resource --rest-api-id <API_ID> --parent-id <PERSONAS_RESOURCE_ID> --path-part consultar && \
+aws apigateway create-resource --rest-api-id <API_ID> --parent-id <CONSULTAR_RESOURCE_ID> --path-part {id} && \
+aws apigateway put-method --rest-api-id <API_ID> --resource-id <ID_RESOURCE_ID> --http-method GET --authorization-type NONE
+
+# 9. Configurar integraciones (reemplazar valores)
+aws apigateway put-integration --rest-api-id <API_ID> --resource-id <RESOURCE_ID> --http-method ANY --type HTTP_PROXY --integration-http-method ANY --uri http://<ALB_DNS_NAME>/api/personas/guard

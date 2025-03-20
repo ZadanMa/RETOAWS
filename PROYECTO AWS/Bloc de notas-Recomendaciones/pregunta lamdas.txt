@@ -1,0 +1,192 @@
+pregunta chapgpt
+pero como cambia y donde lo instalo en mi serveless-api-usuarios que creamos en esta conversacion
+ademas como modifco todos mis lambdas creado y ni enviar correos todo esto estos son mis lamdas
+1. putuser en java
+package com.example;
+
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.RequestHandler;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+
+import java.util.Map;
+import java.util.HashMap;
+
+public class PutUser implements RequestHandler<Map<String, Object>, Map<String, Object>> {
+
+    private static final String TABLE_NAME = "usuarios";
+    private final DynamoDbClient dynamoDbClient = DynamoDbClient.create();
+
+    @Override
+    public Map<String, Object> handleRequest(Map<String, Object> event, Context context) {
+        Map<String, String> body = (Map<String, String>) event.get("body");
+
+        // Construir el item para DynamoDB
+        Map<String, AttributeValue> item = new HashMap<>();
+        item.put("id", AttributeValue.builder().s(body.get("id")).build());
+        item.put("nombre", AttributeValue.builder().s(body.get("nombre")).build());
+        item.put("email", AttributeValue.builder().s(body.get("email")).build());
+
+        // Enviar el item a DynamoDB
+        PutItemRequest putItemRequest = PutItemRequest.builder()
+                .tableName(TABLE_NAME)
+                .item(item)
+                .build();
+        dynamoDbClient.putItem(putItemRequest);
+
+        // Responder con éxito
+        return Map.of(
+                "statusCode", 200,
+                "body", "{\"message\":\"Usuario actualizado correctamente\"}"
+        );
+    }
+}
+2. deleteUser en java
+package com.example;
+
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.RequestHandler;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+
+import java.util.Map;
+import java.util.HashMap;
+
+public class DeleteUser implements RequestHandler<Map<String, Object>, Map<String, Object>> {
+
+    private static final String TABLE_NAME = "usuarios";
+    private final DynamoDbClient dynamoDbClient = DynamoDbClient.create();
+
+    @Override
+    public Map<String, Object> handleRequest(Map<String, Object> event, Context context) {
+        Map<String, String> pathParameters = (Map<String, String>) event.get("pathParameters");
+        String id = pathParameters.get("id");
+
+        // Construir la clave primaria para borrar el usuario
+        Map<String, AttributeValue> key = new HashMap<>();
+        key.put("id", AttributeValue.builder().s(id).build());
+
+        // Enviar el request de eliminación
+        DeleteItemRequest deleteItemRequest = DeleteItemRequest.builder()
+                .tableName(TABLE_NAME)
+                .key(key)
+                .build();
+        dynamoDbClient.deleteItem(deleteItemRequest);
+
+        // Responder con éxito
+        return Map.of(
+                "statusCode", 200,
+                "body", "{\"message\":\"Usuario eliminado correctamente\"}"
+        );
+    }
+}
+3. getUser y postuser que estan en handler.js en raiz en nodejs 
+const AWS = require("aws-sdk");
+
+const dynamoDB = new AWS.DynamoDB.DocumentClient();
+
+module.exports.getUser = async (event) => {
+    const params = {
+        TableName: "usuarios"
+    };
+
+    const data = await dynamoDB.scan(params).promise();
+
+    return {
+        statusCode: 200,
+        body: JSON.stringify(data.Items),
+    };
+};
+
+"use strict";
+
+const AWS = require("aws-sdk");
+
+// Inicializar el cliente de DynamoDB
+const dynamoDB = new AWS.DynamoDB.DocumentClient();
+// Inicializar el cliente de SQS
+const sqs = new AWS.SQS();
+
+module.exports.postUser = async (event) => {
+    const body = JSON.parse(event.body);
+
+    // Parámetros para guardar en DynamoDB
+    const paramsDynamo = {
+        TableName: "usuarios",
+        Item: {
+            id: body.id,
+            nombre: body.nombre,
+            email: body.email
+        }
+    };
+
+    try {
+        // Guardar en DynamoDB
+        await dynamoDB.put(paramsDynamo).promise();
+    } catch (error) {
+        console.error("Error al guardar en DynamoDB:", error);
+        return {
+            statusCode: 500,
+            body: JSON.stringify({ message: "Error al guardar el usuario en la base de datos" }),
+        };
+    }
+
+    // Parámetros para enviar mensaje a SQS
+    const paramsSQS = {
+        QueueUrl: process.env.CREAR_USUARIO_QUEUE_URL, // URL de la cola SQS
+        MessageBody: JSON.stringify({
+            id: body.id,
+            nombre: body.nombre,
+            email: body.email
+        })
+    };
+
+    try {
+        // Enviar mensaje a SQS
+        await sqs.sendMessage(paramsSQS).promise();
+    } catch (error) {
+        console.error("Error al enviar mensaje a SQS:", error);
+        return {
+            statusCode: 500,
+            body: JSON.stringify({ message: "Error al enviar el mensaje a la cola SQS" }),
+        };
+    }
+
+    return {
+        statusCode: 201,
+        body: JSON.stringify({ message: "Usuario creado y mensaje enviado a SQS correctamente" }),
+    };
+};
+
+4, enviarCorreos,js en nodejs tambien
+"use strict";
+
+const AWS = require("aws-sdk");
+const sns = new AWS.SNS();
+
+module.exports.enviarCorreos = async (event) => {
+    for (const record of event.Records) {
+        const { id, nombre, email } = JSON.parse(record.body);
+
+        const paramsSNS = {
+            Subject: "Bienvenido a Nuestro Servicio",
+            Message: `Hola ${nombre},\n\nGracias por registrarte. Tu ID de usuario es ${id}.`,
+            TopicArn: process.env.SNS_TOPIC_ARN
+        };
+
+        try {
+            await sns.publish(paramsSNS).promise();
+            console.log(`Correo enviado a ${email}`);
+        } catch (error) {
+            console.error(`Error al enviar correo a ${email}:`, error);
+        }
+    }
+
+    return {
+        statusCode: 200,
+        body: JSON.stringify({ message: "Procesamiento completado" })
+    };
+};
+

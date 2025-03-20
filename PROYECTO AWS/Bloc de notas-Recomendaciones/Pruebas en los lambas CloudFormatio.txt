@@ -1,0 +1,39 @@
+Pruebas en los lambas CloudFormation
+Post
+{
+  "body": "{\"id\":\"1\", \"nombre\":\"Ada Enrrtrtiquez\", \"email\":\"adanmorettto13@gmail.com\"}"
+}
+PUT
+{
+  "resource": "/usuarios/{id}",
+  "path": "/usuarios/1",
+  "httpMethod": "PUT",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "pathParameters": {
+    "id": "1"
+  },
+  "body": "{\"nombre\":\"Adan Moreto\", \"email\":\"adanmoreto14@gmail.com\"}",
+  "isBase64Encoded": false
+}
+DELETE
+{
+  "resource": "/usuarios/{id}",
+  "path": "/usuarios/1",
+  "httpMethod": "DELETE",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "pathParameters": {
+    "id": "1"
+  },
+  "queryStringParameters": null,
+  "body": null,
+  "isBase64Encoded": false
+}
+{
+  "pathParameters": {
+    "id": "1"
+  }
+}

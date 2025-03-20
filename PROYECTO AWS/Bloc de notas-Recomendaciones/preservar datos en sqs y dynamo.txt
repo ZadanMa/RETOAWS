@@ -1,0 +1,7 @@
+preservar datos en sqs y dynamo
+resources:
+  Resources:
+    UsuariosDynamoDBTable:
+      DeletionPolicy: Retain  # <- Añade esto
+    CrearUsuarioQueue:
+      DeletionPolicy: Retain  # <- Y esto

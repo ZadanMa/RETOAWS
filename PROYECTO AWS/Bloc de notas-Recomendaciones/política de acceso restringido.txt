@@ -1,0 +1,138 @@
+política de acceso restringido
+configurar el SQS para que solo sea accedido desde las 2 lambdas y el SNS para que solo sea accedido desde el lambda enviarCorreos
+1. SQS
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "sqs:SendMessage",
+      "Resource": "arn:aws:sqs:us-east-1:340752805522:crearUsuarioQueue",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalArn": [
+            "arn:aws:lambda:us-east-1:340752805522:function:postUser",
+            "arn:aws:lambda:us-east-1:340752805522:function:enviarCorreos"
+          ]
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": "arn:aws:sqs:us-east-1:340752805522:crearUsuarioQueue",
+      "Condition": {
+        "ArnEquals": {
+          "aws:SourceArn": [
+            "arn:aws:lambda:us-east-1:340752805522:function:postUser",
+            "arn:aws:lambda:us-east-1:340752805522:function:enviarCorreos"
+          ]
+        }
+      }
+    }
+  ]
+}
+2. SNS PERMISO ESPECIAL AL USUARIO DE IAM
+{
+  "Version": "2012-10-17",
+  "Id": "__default_policy_ID",
+  "Statement": [
+    {
+      "Sid": "RestrictSNSAccess",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:us-east-1:340752805522:correoSNSTopic",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalArn": [
+            "arn:aws:lambda:us-east-1:340752805522:function:enviarCorreos",
+            "arn:aws:iam::340752805522:user/dev"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "AllowIAMUserToPublish",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::340752805522:user/dev"
+      },
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:us-east-1:340752805522:correoSNSTopic"
+    },
+    {
+      "Sid": "__default_statement_ID",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "*"
+      },
+      "Action": [
+        "SNS:GetTopicAttributes",
+        "SNS:SetTopicAttributes",
+        "SNS:AddPermission",
+        "SNS:RemovePermission",
+        "SNS:DeleteTopic",
+        "SNS:Subscribe",
+        "SNS:ListSubscriptionsByTopic",
+        "SNS:Publish"
+      ],
+      "Resource": "arn:aws:sns:us-east-1:340752805522:correoSNSTopic",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceOwner": "340752805522"
+        }
+      }
+    }
+  ]
+}
+2.1 SNS PERO SOLO EL LAMBDA ENVIARCORREOS
+{
+  "Version": "2012-10-17",
+  "Id": "__default_policy_ID",
+  "Statement": [
+    {
+      "Sid": "RestrictSNSAccess",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:us-east-1:340752805522:correoSNSTopic",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalArn": "arn:aws:lambda:us-east-1:340752805522:function:enviarCorreos"
+        }
+      }
+    },
+    {
+      "Sid": "__default_statement_ID",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "*"
+      },
+      "Action": [
+        "SNS:GetTopicAttributes",
+        "SNS:SetTopicAttributes",
+        "SNS:AddPermission",
+        "SNS:RemovePermission",
+        "SNS:DeleteTopic",
+        "SNS:Subscribe",
+        "SNS:ListSubscriptionsByTopic",
+        "SNS:Publish"
+      ],
+      "Resource": "arn:aws:sns:us-east-1:340752805522:correoSNSTopic",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceOwner": "340752805522"
+        }
+      }
+    }
+  ]
+}
+
